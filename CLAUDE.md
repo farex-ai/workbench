@@ -16,4 +16,4 @@ root `../CLAUDE.md` session rules (they apply here).
 - Small real commits; push only when the owner says so, and public copies come from a clean export.
 
 ## Status (2026-11-08)
-Plan written (`PLAN.md`), artifact formats noted (`docs/pilot-artifacts.md`). No code. Local repo, no remote.
+Plan written (`PLAN.md`), artifact formats noted (`docs/pilot-artifacts.md`). No code. Public at github.com/farex-ai/workbench (MIT), pushed 2026-11-08 with the owner's OK.

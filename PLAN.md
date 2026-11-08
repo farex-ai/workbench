@@ -85,4 +85,4 @@ Source text of the owner's spec for this screen ended after "Show reference vers
 4. Whether AI-marked sheets can be imported as "AI-marked review" for comparison with a later human review (proposed: yes).
 
 ## Status
-2026-11-08: plan written; no code yet. Local git repo, no remote.
+2026-11-08: plan written; no code yet. Public repo `farex-ai/workbench`, MIT.
