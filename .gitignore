@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+.DS_Store
+# Imported run bundles, review state and exports are local data, never committed.
+workspace/
+.env
+.env.*
