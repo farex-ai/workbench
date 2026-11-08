@@ -1,88 +1,116 @@
-# Farex Workbench: plan
+# Farex Workbench: plan (V1)
 
-Decided by the owner 2026-11-08. Local-first research workbench for evaluating routing failures in multi-agent AI systems.
-Sibling of `../Routing (Pilot)/` (the experiment tool). This plan is not a brainstorm; scope below is fixed unless the owner changes it.
+Direction decided by the owner 2026-11-08: an artifact-driven routing-evaluation workbench, local-first.
+Spec revised 2026-11-08 (full screens 1-6, boundaries, acceptance). This plan stops before implementation.
 
-## Question the product answers
-"When the same task is sent to a different specialist agent, what changes in correctness, instruction compliance, latency, and token usage?"
+## 1. Question and scope
+"When the same task is sent to a different specialist agent, what changes in correctness, instruction compliance,
+latency, and token usage?"
 
-V1 turns existing routing-pilot artifacts into an interactive, reviewable experiment report.
+V1 turns existing routing-pilot artifacts into an interactive, reviewable experiment report. It consumes runs; it does
+not execute experiments, call models or APIs, run generated code, or add a sandbox.
 
-**Not in scope:** chatbot, general-purpose agent, agent builder, production monitoring, hosted service, accounts, uploading anything.
+Not building: chatbot, general assistant, agent builder, "another Remy", leaderboard, production observability,
+clinical tool, or a marketing page instead of the workbench. No auth, billing, teams, cloud database or telemetry.
+Notion is a project-summary layer only, never the source of truth.
 
-## User
-The owner, as the researcher running the Farex pilot. Understandable at a glance, with the underlying evidence one click away.
+User: the owner, as the researcher running the pilot. Brand: the approved Farex "Trace" kit v0.2 exists
+(`../branding/kit/tokens.css`, dark default, light theme, status colors, tabular figures). Use it; vendor a copy of the
+tokens and fonts into the app (no CDN).
 
-## Core workflow
-Import an existing run -> check validity and completeness -> review responses blind -> save judgments ->
-explicitly reveal -> compare conditions and inspect disagreements -> export a reproducible review/report package.
+## 2. Inspected input schemas
+Read-only inspection of `../Routing (Pilot)/` on 2026-11-08, from dry-run files, file headers, the task suite and
+`docs/scoring.md`. No real run log, key or score was opened. The importer must re-check against
+`farex_pilot/` and `farex_stage4/` code and each bundle's own `schema_version` when it is built.
 
-## Screens (V1)
+| Artifact | Path (pilot) | Content | Reveals condition or score? |
+|---|---|---|---|
+| Manifest | `artifacts/runs/generic_v2.<RUN>.manifest.json` (dry runs: `artifacts/dry_run/`) | `run_id, suite, stage, dry_run, started, ended, aborted, abort, git, hashes (23 files), python, os, scorer_version, execution_order, sandbox, note`. Stage 4 adds `stage4, model, provider, options, seed_supported, parent_run_id, workers, calls_sent, cells_completed, spent_usd_micro`. | No per-cell data |
+| Run log | `...<RUN>.jsonl`, schema `pilot-row-2.0.0` | One row per attempt. `row_type` is `warmup`, `worker` or `router`. Keys: `run_id, row_id, call_id, attempt, is_warmup, task_id, task_type, condition, reference_destination, selected_destination, system_prompt_file, system_prompt_sha256, task_sha256, response, response_source, status, scored, score_status, pass, components, reason, scorer_version, scorer_sha256, latency_ms, prompt_tokens, completion_tokens, token_source, model, model_digest, options, error, error_class, retry_eligible, router, router_outcome, dry_run, timestamp`, plus Stage 4: `http_status, reasoning_content, reasoning_tokens, returned_model, returned_model, spend_usd_micro, spend_source`, and Ollama timing fields locally. | Yes (condition, destination, score) |
+| Review sheet | `artifacts/review/review_sheet.<RUN>.csv` | `review_id, task_prompt, what_counts_as_correct, response, human_correct, human_compliant, human_notes` | No. The only blinded input. |
+| Review key | `artifacts/private/review_key.<RUN>.json` | `{run_id, results_file, sheet, mapping}`; `mapping[review_id] = {row_id, call_id, task_id, condition}` | Yes |
+| Reviewed sheet | `..._reviewed.csv` | Same columns with marks filled. Existing ones were marked by AI although the columns say `human_*`. | No |
+| Task suite | `tasks/generic_v2.json` | `{suite, status, source, tasks[40]}`; each task: `id, type, prompt, prompt_original, requirement, expected, expression` | Task definitions (needed for reference after reveal) |
+| Freeze files | `freeze/*.freeze.json` | Hashes of frozen files | Provenance |
+| Reports | `*.report.md`, `*.human_review.md` | Generated after join | Yes. Not imported; the workbench computes its own. |
 
-### 1. Project overview
-- Plain-language statement of the research question.
-- Current experiment stage.
-- Imported runs with review status.
-- Run kind shown for every run, with four distinct labels: **dry run**, **mocked run**, **partial run**, **real model experiment**. Derived from the manifest (`dry_run`, `stage`, `aborted`, provider/mock fields), never guessed.
-- Next action, e.g. "Review 12 remaining responses."
+Facts observed in dry-run logs that the design depends on:
+- Conditions seen: `reference`, `cross:<type>` (fixed wrong), `router`, and a `warmup` row. Spec comparisons use `reference` versus `cross:*`; `router` rows are shown separately (router vs worker measurements stay apart).
+- Component scores live in `components` (`correct`, `compliant`, plus task-type extras). `pass` is the scorer's overall rule; `score_status` can be non-`scored` (review-needed etc.); `error_class` marks transport or sandbox problems.
+- Tokens carry `token_source`; some values can be missing. Show missing explicitly.
+- `attempt` and `retry_eligible` exist, so a logical call (`call_id`) can have several attempt rows. Rule for the final outcome (assumed: highest `attempt` row per `call_id`) must be verified against the runner code during milestone 1 and written into the docs.
+- Task's declared overall pass rule: the scorer's `pass` per task type (`docs/scoring.md`); the workbench shows `pass` as recorded and never recomputes it.
 
-### 2. Import and validate
-- User picks one artifact bundle from the pilot (a file or folder chosen explicitly). No scanning of the machine, no uploads, no network.
-- Importer is written only after re-inspecting the current schemas (`docs/pilot-artifacts.md` is the starting note, not the spec).
-- Reports: missing files, `schema_version` / `scorer_version` mismatches, incomplete cells, aborted runs, hash mismatches against the manifest, available provenance (git, model, digest, prompt hashes).
-- An import that succeeds is "imported", never "verified". "Verified" is reserved for named checks that passed, listed by name.
-- Raw imported files are copied byte-for-byte into the workspace and never modified (store a SHA-256 for each).
+Run kind classification (manifest-driven, shown on every run): **dry run** (`dry_run: true` or `DRYRUN-` id),
+**mocked run** (mock provider or synthetic `response_source`; confirm the exact markers in `farex_stage4/mock.py`),
+**partial run** (`aborted`, or `cells_completed` below expected, or missing cells), **real model experiment** (none of the
+above, with provider, model and digest recorded). Unknown stays "unclassified", never defaulted to real.
 
-### 3. Blinded review
-- Shows task, response, and the requirement/reference needed to judge (the sheet's `task_prompt`, `what_counts_as_correct`, `response`).
-- Records **correct** and **instruction-compliant** separately. Each: yes / no / unjudgeable, with a free-text note.
-- Hides condition, destination, automated score, latency, tokens.
-- The review payload is built only from blinded fields (allowlist, not a denylist). Condition-revealing fields are never sent to this screen and never written to review exports. Tests assert this.
-- Autosave on every judgment; resume where left off; order is fixed per run and recorded.
-- Banner: response style may reveal the condition (e.g. code returned for a non-coding task). Blinding is partial, not perfect. Do not claim otherwise anywhere.
-- Records who marked (`reviewer` field, free text, plus `kind`: human or AI). Required so "human-reviewed" is never claimed for AI marks.
+## 3. Stack and storage
+- **Backend:** Python 3 (the pilot runs 3.14), standard library only: `http.server`, `sqlite3`, `csv`, `json`, `hashlib`. Single local process.
+- **Frontend:** plain HTML, CSS, JS modules, no build step, no CDN, no framework. Brand tokens vendored from the Trace kit.
+- **Why:** fewest moving parts, matches the pilot language, nothing to install, easy to audit that nothing leaves the machine.
+- **Network posture:** bind 127.0.0.1 on a random port; check Host and Origin; per-session token on write requests; no outbound requests; strict CSP (`default-src 'self'`, no inline scripts).
+- **Untrusted content:** model responses, reasoning text and notes are rendered with `textContent` inside `<pre>`; never as HTML, never evaluated, never linked. Nothing is executed.
 
-### 4. Results (locked until reveal)
-Source text of the owner's spec for this screen ended after "Show reference versus fixed-wrong outcomes." The rest is derived from the core workflow and **needs owner confirmation**:
-- Locked until the owner explicitly ends blinded review and confirms reveal. Reveal is recorded with a timestamp and cannot be silently undone; judgments made after reveal are flagged as post-reveal.
-- Reference versus fixed-wrong outcomes: correctness, compliance, unjudgeable counts, latency, tokens (completion tokens separately from prompt tokens).
-- Uncertainty shown (counts and intervals, small-n warnings). A null result is displayed as a result.
+**Workspace (gitignored, local):**
+```
+workspace/
+  farex.db                      SQLite: runs, reviewers, judgments, reveals, exports
+  runs/<run_id>/<bundle_sha256>/raw/   byte-for-byte copies, mode 0444, SHA-256 recorded
+  runs/<run_id>/<bundle_sha256>/sealed/ review key copy; opened only by the reveal module
+  backups/                      timestamped copies of farex.db
+  exports/                      generated packages
+```
+- **Association:** every judgment row stores `run_id`, `bundle_sha256` (hash of the imported manifest+log+sheet set), `review_id`, `reviewer_id`, and the sheet hash. Re-importing a changed bundle creates a new bundle record; judgments never attach to a different hash.
+- **Judgments are append-only:** each save inserts a row; the latest per (reviewer, review_id) wins; history stays. Fields: `correct` (yes/no/unjudgeable), `compliant` (yes/no/unjudgeable), `note`, `saved_at`, `post_reveal` flag.
+- **Reviewer identity:** `reviewer_id`, name, `kind` (human or ai). "Human-reviewed" shown only when a human reviewer completed the sheet. Existing AI-marked sheets import as AI marks.
+- **Backup:** the app copies `farex.db` to `backups/` on app start, before reveal, and on every export (keep the last 20). Judgment CSV export is the portable backup. Documented in the README.
+- **Raw files are never modified.** Revised analyses and corrections are stored as separate records (for example a note that `coding_h6` was ruled a slip), shown beside the original, never replacing it.
 
-### 5. Compare and disagreements (from the workflow; confirm)
-- Per task and per condition, side by side.
-- Disagreements between the owner's/reviewer's marks and the automated scorer, each openable to the full evidence (response, requirement, scorer components and reason).
-- Where several reviewers exist (e.g. AI and human), show their agreement.
+## 4. Screen map and data flow
+```
+Overview ──> Import & validate ──> Blinded review ──> [Reveal gate] ──> Results ──> Task drill-down ──> Export
+   ^              |                     |                  |              |             |
+   └─ next action ┘            sheet CSV only        key + log unsealed   log + key     source records
+```
+- **Overview** (`GET /api/projects`): question text, stage, run list with kind badge and review status, one visible next action ("Review 12 remaining responses", "Run has 3 incomplete cells", "Reveal when ready").
+- **Import & validate:** user selects a bundle (file/folder picker or typed path). Checks, each named with pass/fail/not run: required files present, JSON/CSV parse, `schema_version` known, manifest hashes match, `run_id` consistent across files, sheet rows equal key mapping, every mapped `row_id` exists in the log, incomplete cells, aborted, scorer version. Shows provenance (git, model, digest, prompt hashes, freeze). Result is "imported" plus a list of checks. The word "verified" appears only next to a specific named check that passed.
+- **Blinded review:** payload comes only from the sheet via an allowlist (`review_id, task_prompt, what_counts_as_correct, response`) and is served from a module that cannot read the log or key. Controls: correct, compliant (yes / no / unjudgeable), note. Autosave, resume at first unjudged, fixed order stored per run. Banner: response style can hint at the condition; blinding is partial.
+- **Reveal gate:** owner presses "End review", sees counts judged/unjudgeable/missing, confirms. Writes a reveal record, opens the sealed key, loads the log. Later edits are marked `post_reveal`. Reveal is not undone silently; an explicit "reopen" is recorded.
+- **Results:** reference vs fixed-wrong tables with correctness, compliance and the task's `pass` kept separate; counts with denominators (as "n of N") and percentages only beside them; automated vs human vs disagreements as separate columns; unscored, review-needed, transport-error and sandbox-error kept as visible rows; latency and provider tokens with "missing" explicit; router and worker separated. No dollar cost, no significance tests, no generalization text.
+- **Task drill-down:** per task, the reference and wrong-route responses side by side; selected destinations, prompt file and hash, attempts list versus final outcome, errors, scorer components and reason, human marks and notes; each figure links to its source record (file, line, `row_id`).
+- **Export:** zip with `judgments.csv`, `judgments.json`, `report.md` (methods, outcomes, limitations, artifact references with hashes), `manifest.json` (inputs, versions, reveal record, reviewers). Partial runs and revised analyses are labeled in the report. The blinded export (sheet plus judgments before reveal) contains only allowlisted fields. Deterministic output apart from stated timestamps.
 
-### 6. Export (from the workflow; confirm)
-- A reproducible package: manifest of inputs with hashes, judgments with reviewer and timestamps, reveal record, workbench version, and the generated report. Re-running the export on the same inputs gives the same bytes apart from stated timestamps.
-- The blinded review export contains no condition-revealing fields.
+## 5. Implementation sequence (small commits each)
+1. **Importer core + fixtures.** Readers for manifest, jsonl, sheet, key, tasks; run-kind classifier; named validation checks. Synthetic fixtures copied/derived from dry-run bundles only.
+2. **Workspace + storage.** Raw copy with hashes and read-only mode; SQLite schema; backups.
+3. **Blinded review service.** Allowlist payload, append-only judgments, resume, reviewer identity. Leak test lands here.
+4. **UI shell + Import screen + Review screen** (brand tokens), then Overview.
+5. **Reveal gate + Results.** Metrics module with counts and denominators; attempts vs final outcome.
+6. **Drill-down + disagreements + source links.**
+7. **Export package + report generator**, determinism test.
+8. **Docs** (README: storage, backup, blinding limits) and a history-free public refresh when the owner says.
 
-## Honesty rules carried over
-- Existing Stage 2, 3 and 4 marks were made by AI. The human-review gate is not met. UI and exports say "AI-marked" for them.
-- Nothing from a real run leaves the machine without the owner's explicit OK. No result figures in the repo, fixtures, docs or screenshots; use dry-run or synthetic data.
-- Stay blinded while building: develop against dry-run bundles only; do not open real run logs, keys or scores before review is joined.
+## 6. Acceptance tests (map to the owner's 7 criteria)
+1. **Import without editing:** hash of each source file before and after import is identical; workspace copy hash equals source; copies are read-only.
+2. **Run kind:** fixtures for dry, mocked, partial (aborted and incomplete) and real-shaped manifests classify correctly; unknown manifests are "unclassified"; a successful import never produces a "verified" label.
+3. **Blind review and resume:** kill and restart the app mid-review; judgments persist and the next unjudged item opens; correct and compliant save independently; unjudgeable plus note works.
+4. **Reveal:** Results endpoints return 403 before reveal; the review payload and blinded export contain none of: `condition`, `selected_destination`, `reference_destination`, `pass`, `components`, `score_status`, latency, token fields, `system_prompt_file` (allowlist test plus a deliberate-leak test that must fail loudly).
+5. **Traceability:** every metric in Results has a drill-down listing its row ids; each row id resolves to a line in the raw log; totals equal denominators.
+6. **Disagreements:** a fixture with known scorer-versus-human mismatches lists exactly those, each with scorer components and the human note.
+7. **Export:** package contains judgments, report, manifest; re-export on the same inputs is byte-identical except stated timestamps; raw logs untouched; partial runs carry a "partial" label.
+Also: responses containing `<script>`, HTML and markdown render as inert text; no outbound network calls (test with a socket guard); no write outside `workspace/`.
 
-## Proposed technical approach (a default; change if the owner wants)
-- Python 3 backend using the standard library where possible, serving a local-only UI on 127.0.0.1. Same language as the pilot, so the importer can reuse its scoring and join code by reading, not by importing frozen files.
-- Plain HTML, CSS and JS for the UI, with no build step to start. No telemetry, no CDN loads, no network calls.
-- Local workspace folder (`workspace/`, gitignored) holding copied raw bundles, an SQLite review database, and exports.
-- Tests with `unittest`, including a leak test that fails if any blinded payload or review export contains a condition-revealing key.
+## 7. Honesty rules carried over
+- Stage 2, 3 and 4 marks were made by AI; the human-review gate is not met. UI and exports say "AI-marked".
+- No real result figures in the repo, fixtures, docs or screenshots. Build against dry-run and synthetic data only.
+- The workbench is procedural blinding in one local process, not security against its own user; document that.
 
-## Milestones (each ends in small commits)
-1. **Importer core.** Re-inspect pilot schemas; manifest and jsonl readers; run-kind classifier; validation checks with named results. Tests on dry-run bundles.
-2. **Workspace storage.** Raw copy with hashes, review database, run registry.
-3. **Blinded review backend.** Allowlist payload, save and resume, reviewer identity, leak test.
-4. **Review UI.** Screens 2 and 3 first, then 1.
-5. **Reveal and results.** Reveal gate, join to key, reference versus fixed-wrong tables.
-6. **Compare and disagreements.**
-7. **Export package** with reproducibility test.
-8. **Docs and clean export** for a public repo through a history-free copy and a leak scan, only on the owner's go.
-
-## Open decisions for the owner
-1. Screens 4 to 6 above were inferred; please confirm or send the rest of the spec (the message ended mid-screen 4).
-2. Repo name and whether to create it under `farex-ai` (suggested: `farex-ai/workbench`), and whether it starts private.
-3. Reviewer identity: is a single reviewer enough for V1?
-4. Whether AI-marked sheets can be imported as "AI-marked review" for comparison with a later human review (proposed: yes).
+## 8. Blocking questions
+None block milestones 1-3. These matter before the first real-data review:
+1. **Blinding is already spent for the existing real runs.** You have seen the Stage 3 results (and Stage 4 was joined). A review by you of those sheets is not blind. Options: (a) a second reviewer who has not seen results marks them; (b) review them anyway and label the review "reviewer had seen results"; (c) wait for a new run. Which?
+2. Should V1 support more than one reviewer per run (needed to compare the AI marks with a human)? Plan assumes yes (reviewer table exists; UI shows one at a time).
 
 ## Status
-2026-11-08: plan written; no code yet. Public repo `farex-ai/workbench`, MIT.
+2026-11-08: plan complete for review; no application code. Public repo `farex-ai/workbench` (MIT), plan and docs only.
